@@ -14,24 +14,17 @@
 #include <thread>
 #include <math.h>
 
-
-
 //#include <chrono>
-
 
 u_int64_t *data;
 
-
 using namespace std;
-
 
 //uncomment to check correctness of the func
 //#define CHECK_MPHF
 
-
 #define MAX_RANDOM 2147483648
 #define srandomdev() srand((unsigned) time(NULL))
-
 
 inline double get_time_usecs() {
 	struct timeval tv;
@@ -82,7 +75,9 @@ class bfile_iterator : public std::iterator<std::forward_iterator_tag, u_int64_t
 	{
 		_buffsize = 10000;
 		_buffer = (u_int64_t *) malloc(_buffsize*sizeof(u_int64_t));
-		int reso = fseek(_is,0,SEEK_SET);
+		if (fseek(_is,0,SEEK_SET) != 0) {
+         throw runtime_error("fseek failed");
+      }
 		advance();
 	}
 
@@ -169,18 +164,11 @@ class file_binary{
 	FILE * _is;
 };
 
-
-
 //simple iterator to generate list of distinct u_int64_t keys (not random, just equally distributed in [0;ULLONG_MAX])
 class uint64_iterator : public std::iterator<std::forward_iterator_tag, u_int64_t>{
 public:
-	
-	uint64_iterator() : _nb_elem(0) , _curr(ULLONG_MAX), _step(0),_nb_iterated(0)
-	{
-	}
-	
-	uint64_iterator(const uint64_iterator& cr)
-	{
+	uint64_iterator() : _nb_elem(0) , _curr(ULLONG_MAX), _step(0),_nb_iterated(0) { }
+	uint64_iterator(const uint64_iterator& cr) {
 		_nb_elem = cr._nb_elem;
 		_curr = cr._curr;
 		_step = cr._step;
@@ -188,35 +176,26 @@ public:
 		_nb_iterated = cr._nb_iterated;
 	}
 	
-	uint64_iterator(u_int64_t nb_elem, u_int64_t stop ) : _nb_elem(nb_elem) , _curr(0),_nb_iterated(0), _stop(stop)
-	{
-		_step =  ULLONG_MAX / _nb_elem;
-	}
-	
-	~uint64_iterator()
-	{
-	}
-	
+	uint64_iterator(u_int64_t nb_elem, u_int64_t stop ) 
+      : _nb_elem(nb_elem) , _curr(0), _step(ULLONG_MAX/_nb_elem), _stop(stop), _nb_iterated(0)
+	{ }
+	~uint64_iterator() { }
 	u_int64_t const& operator*()  {  return _curr;  }
-	
-	uint64_iterator& operator++()
-	{
-
+	uint64_iterator& operator++() {
 		_curr = _curr + _step;
 		_nb_iterated++;
 		if(_nb_iterated >= _stop) _nb_elem = 0;
 		return *this;
 	}
-	
 	friend bool operator==(uint64_iterator const& lhs, uint64_iterator const& rhs)
 	{
 		if (!lhs._nb_elem || !rhs._nb_elem)  {  if (!lhs._nb_elem && !rhs._nb_elem) {  return true; } else {  return false;  } }
 		assert(lhs._nb_elem == rhs._nb_elem);
 		return rhs._curr == lhs._curr;
 	}
-	
 	friend bool operator!=(uint64_iterator const& lhs, uint64_iterator const& rhs)  {  return !(lhs == rhs);  }
 
+protected:
 	u_int64_t _nb_elem;
 	u_int64_t _curr;
 	u_int64_t _step;
@@ -594,8 +573,8 @@ int main (int argc, char* argv[]){
 	vector<uint> nb_elem_in_previous_buckets (nBuckets*nMphfByBucket);
 
 	
-	if(buckets){
-		clock_t begin, end;
+	if (buckets) {
+		//clock_t begin, end;
 		double t_begin,t_end; struct timeval timet;
 		gettimeofday(&timet, NULL); t_begin = timet.tv_sec +(timet.tv_usec/1000000.0);
 
@@ -611,14 +590,14 @@ int main (int argc, char* argv[]){
 		
 		int buffsize = 10000;
 		vector < vector<u_int64_t> > buffers (nBuckets);
-		for(int ii=0; ii<nBuckets;ii++)
+		for(size_t ii=0; ii < nBuckets; ii++)
 			buffers[ii].reserve(buffsize);
 		
 		auto data_iterator = file_binary("keyfile");
 		for (auto const& key: data_iterator) {
 			u_int64_t hash=(korenXor(key)%(nBuckets*nMphfByBucket)/nMphfByBucket);
 			
-			if(buffers[hash].size()==buffsize)
+			if((int)buffers[hash].size() == buffsize)
 			{
 				fwrite(buffers[hash].data(), sizeof(u_int64_t), buffers[hash].size(), vFiles[hash]);
 				buffers[hash].clear();//hope it keeps capacity intact
@@ -628,17 +607,17 @@ int main (int argc, char* argv[]){
 			++elinbuckets[korenXor(key)%(nBuckets*nMphfByBucket)];
 		}
 		//flush buffers
-		for(int ii=0; ii<nBuckets;ii++)
+		for(size_t ii=0; ii<nBuckets; ii++)
 		{
 			fwrite(buffers[ii].data(), sizeof(u_int64_t), buffers[ii].size(), vFiles[ii]);
 		}
 
-		for (int ii=0; ii<vFiles.size(); ii++) {
+		for (size_t ii=0; ii<vFiles.size(); ii++) {
 			fclose(vFiles[ii]);
 		}
 
 		nb_elem_in_previous_buckets[0] = 0 ;
-		for(int ii=1; ii<nBuckets*nMphfByBucket; ii++ ){
+		for(int ii=1; ii < int(nBuckets*nMphfByBucket); ii++ ){
 			nb_elem_in_previous_buckets[ii] = nb_elem_in_previous_buckets[ii-1] + elinbuckets[ii-1];
 		}
 
@@ -661,9 +640,7 @@ int main (int argc, char* argv[]){
 			remove(("bucket"+to_string(i)).c_str());
 		}
 		gettimeofday(&timet, NULL); t_end = timet.tv_sec +(timet.tv_usec/1000000.0);
-
 		double elapsed = t_end - t_begin;
-
 		printf("BooPHF constructed perfect hash for %llu keys in %.2fs\n", nelem,elapsed);
 		// cin.get();
 
@@ -672,7 +649,7 @@ int main (int argc, char* argv[]){
 			u_int64_t current2 = 0;
 			u_int64_t range_problems(0);
 			u_int64_t nb_collision_detected(0);
-			begin = clock();
+			//begin = clock();
 			boomphf::bitVector check_table (nelem);
 			for (u_int64_t i = 0; i < nelem; i++){
 
@@ -696,7 +673,7 @@ int main (int argc, char* argv[]){
 			printf("there is %llu problems\n", range_problems);
 			printf("there is %llu coll\n", nb_collision_detected);
 
-			end = clock();
+			//end = clock();
 			//printf("BooPHF %llu lookups in  %.2fs,  approx  %.2f ns per lookup \n", nelem, (double)(end - begin) / CLOCKS_PER_SEC,  ((double)(end - begin) / CLOCKS_PER_SEC)*1000000000/nelem);
 		}
 
@@ -741,12 +718,7 @@ int main (int argc, char* argv[]){
 				}
 			}
 			printf("BBhash buckets bench lookups average %.2f ns +- stddev  %.2f %%   (fingerprint %llu)  \n", 1000.0*stats.mean(),stats.relative_stddev(),dumb);
-			
-			///
 		}
-
-
-
 		return EXIT_SUCCESS;
 	}
 
@@ -757,7 +729,7 @@ int main (int argc, char* argv[]){
 	boophf_t * bphf = NULL;;
 
 
-	clock_t begin, end;
+	//clock_t begin, end;
 	double t_begin,t_end; struct timeval timet;
 
 	if(!load_mphf){
@@ -862,7 +834,7 @@ int main (int argc, char* argv[]){
 		static std::mt19937_64 rng;
 		rng.seed(std::mt19937_64::default_seed); //default seed
 		u_int64_t *  data_random = (u_int64_t * ) calloc(nrandom,sizeof(u_int64_t));
-		for (u_int64_t i = 0; i < nrandom; i++){
+		for (u_int64_t i = 0; i < (u_int64_t)nrandom; i++){
 			data_random[i] = rng();
 		//	printf("%llu \n",data_random[i]);
 		}
@@ -872,39 +844,27 @@ int main (int argc, char* argv[]){
 		u_int64_t nb_out_of_range =0;
 
 		
-		for (size_t ii = 0; ii < nrandom; ++ii) {
-			
+		for (size_t ii = 0; ii < (size_t)nrandom; ++ii) {
 			mphf_value = bphf->lookup(data_random[ii]);
-
 			//printf("m %llu \n",mphf_value);
-
-			if(mphf_value != ULLONG_MAX)
-			{
+			if(mphf_value != ULLONG_MAX) {
 				nb_fp++;
 			}
-			
-			if((mphf_value != ULLONG_MAX) &&  (mphf_value >= nelem))
-			{
+			if((mphf_value != ULLONG_MAX) &&  (mphf_value >= nelem)) {
 				nb_out_of_range++;
 			}
-			
 		}
-		
-		
 		double tick = get_time_usecs();
-		
-		for (size_t ii = 0; ii < nrandom; ++ii) {
+		for (size_t ii = 0; ii < (size_t)nrandom; ++ii) {
 			mphf_value = bphf->lookup(data_random[ii]);
 			//do some silly work
 			dumb+= mphf_value;
-
 		}
 		double elapsed = get_time_usecs() - tick;
 
 		printf("query %i elem  out of set  FP rate %.2f   nb issues %llu    lookup %.2f  ns \n",nrandom, nb_fp/(float)nrandom,nb_out_of_range
 			   ,1000.0*elapsed/(double)nrandom );
 	}
-	
 
 	if(!from_disk){
 		free(data);
